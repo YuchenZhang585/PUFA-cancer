@@ -1,0 +1,205 @@
+---
+title: "Interaction"
+author: "Yuchen Zhang"
+date: "12/15/2022"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(data.table)
+library(Hmisc)
+library(haven)
+library(survival)		#Survival analysis
+library(survminer) 		#Survival analysis
+library(rms)
+library(survMisc)
+library(Greg)
+library(ggplot2)
+library(Publish)
+```
+
+
+```{r}
+fish_cancer <- fread("/Users/yuchen/Desktop/UKBiobank/Cancer/Data/fish_cancer.csv", header=TRUE, sep=",")
+data_add <- fread("/Users/yuchen/Desktop/UKBiobank/Cancer/Data/data_add.csv", header=TRUE, sep=",")
+data_add$Alcohol_status = as.factor(data_add$Alcohol_status)
+data_add$Smoking_status = as.factor(data_add$Smoking_status)
+data_add$IPAQ_activity = as.factor(data_add$IPAQ_activity)
+```
+
+```{r}
+data_add = data_add %>% mutate(ageg2 = ifelse(age <= 50, 1, ifelse(age <= 60, 2, 3)))
+data_add$ageg2 = as.factor(data_add$ageg2)
+data_add$sex = as.factor(data_add$sex)
+```
+
+Interaction with age
+
+Omega-3
+
+```{r}
+fit3_age = coxph(Surv(time_to_cancer_year, status)~ omega3_pct + ageg2 + ageg2:omega3_pct, data = data_add)
+summary(fit3_age)
+```
+
+```{r}
+publish(fit3_age)
+```
+
+
+Test for interaction
+```{r}
+fit3_age2 = coxph(Surv(time_to_cancer_year, status)~ omega3_pct + ageg2 , data = data_add)
+anova(fit3_age,fit3_age2,test="Chisq")
+```
+
+
+
+Omega-6
+
+```{r}
+fit6_age = coxph(Surv(time_to_cancer_year, status)~ omega6_pct + ageg2 + ageg2:omega6_pct, data = data_add)
+summary(fit6_age)
+```
+
+```{r}
+publish(fit6_age)
+```
+
+Test for interaction
+```{r}
+fit6_age2 = coxph(Surv(time_to_cancer_year, status)~ omega6_pct + ageg2 , data = data_add)
+anova(fit6_age,fit6_age2,test="Chisq")
+```
+
+
+Omega-ratio
+
+```{r}
+fitr_age = coxph(Surv(time_to_cancer_year, status)~ omega_ratio2 + ageg2 + ageg2:omega_ratio2, data = data_add)
+summary(fitr_age)
+```
+
+```{r}
+publish(fitr_age)
+```
+
+Test for interaction
+```{r}
+fitr_age2 = coxph(Surv(time_to_cancer_year, status)~ omega_ratio2 + ageg2 , data = data_add)
+anova(fitr_age,fitr_age2,test="Chisq")
+```
+
+Interaction with sex
+
+1 male; 0 female
+
+Omega-3
+
+```{r}
+fit3_sex = coxph(Surv(time_to_cancer_year, status)~ omega3_pct + sex + sex:omega3_pct, data = data_add)
+summary(fit3_sex)
+```
+
+```{r}
+publish(fit3_sex)
+```
+
+Test for interaction
+```{r}
+fit3_sex2 = coxph(Surv(time_to_cancer_year, status)~ omega3_pct + sex , data = data_add)
+anova(fit3_sex,fit3_sex2,test="Chisq")
+```
+
+Omega-6
+
+```{r}
+fit6_sex = coxph(Surv(time_to_cancer_year, status)~ omega6_pct + sex + sex:omega6_pct, data = data_add)
+summary(fit6_sex)
+```
+
+```{r}
+publish(fit6_sex)
+```
+
+Test for interaction
+```{r}
+fit6_sex2 = coxph(Surv(time_to_cancer_year, status)~ omega6_pct + sex , data = data_add)
+anova(fit6_sex,fit6_sex2,test="Chisq")
+```
+
+Omega-ratio
+
+```{r}
+fitr_sex = coxph(Surv(time_to_cancer_year, status)~ omega_ratio2 + sex + sex:omega_ratio2, data = data_add)
+summary(fitr_sex)
+```
+
+```{r}
+publish(fitr_sex)
+```
+
+Test for interaction
+```{r}
+fitr_sex2 = coxph(Surv(time_to_cancer_year, status)~ omega_ratio2 + sex , data = data_add)
+anova(fitr_sex,fitr_sex2,test="Chisq")
+```
+
+Interaction with ethnicity
+
+Omega-3
+
+```{r}
+fit3_eth = coxph(Surv(time_to_cancer_year, status)~ omega3_pct + eth_group_new + eth_group_new:omega3_pct, data = data_add)
+summary(fit3_eth)
+```
+
+```{r}
+publish(fit3_eth)
+```
+
+Test for interaction
+```{r}
+fit3_eth2 = coxph(Surv(time_to_cancer_year, status)~ omega3_pct + eth_group_new , data = data_add)
+anova(fit3_eth,fit3_eth2,test="Chisq")
+```
+
+Omega-6
+
+```{r}
+fit6_eth = coxph(Surv(time_to_cancer_year, status)~ omega6_pct + eth_group_new + eth_group_new:omega6_pct, data = data_add)
+summary(fit6_eth)
+```
+
+```{r}
+publish(fit6_eth)
+```
+
+Test for interaction
+```{r}
+fit6_eth2 = coxph(Surv(time_to_cancer_year, status)~ omega6_pct + eth_group_new , data = data_add)
+anova(fit6_eth,fit6_eth2,test="Chisq")
+```
+
+Omega-ratio
+
+```{r}
+fitr_eth = coxph(Surv(time_to_cancer_year, status)~ omega_ratio2 + eth_group_new + eth_group_new:omega_ratio2, data = data_add)
+summary(fitr_eth)
+```
+
+
+```{r}
+publish(fitr_eth)
+```
+
+Test for interaction
+```{r}
+fitr_eth2 = coxph(Surv(time_to_cancer_year, status)~ omega_ratio2 + eth_group_new , data = data_add)
+anova(fitr_eth,fitr_eth2,test="Chisq")
+```
+
+
