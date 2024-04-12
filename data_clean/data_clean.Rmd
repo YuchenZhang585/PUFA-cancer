@@ -1,0 +1,331 @@
+---
+title: "Cancer_first_ICD10"
+author: "Yuchen Zhang"
+date: "1/26/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(data.table)
+library(arsenal)
+```
+
+## Read in data
+
+```{r}
+# Change the local drive to the cluster drive
+# cluster location /scratch/yz92460/ukb/omega_data/raw.csv
+# local location /Users/yuchen/Desktop/UKBiobank/Cancer/Data/
+ID_new = omega_new$ID
+
+#cancer_new = fread("/Users/yuchen/Desktop/Cancer/Data/cancer_new.csv", header=TRUE, sep=",")
+health_new = fread("/Users/yuchen/Desktop/Cancer/Data/health_new2.csv", header=TRUE, sep=",")
+
+#omega <- fread("/Users/yuchen/Desktop/Cancer/Data/omega.csv", header=TRUE, sep=",") # need new
+omega_new = fread("/Users/yuchen/Desktop/Cancer/Data/omega_new.csv", header=TRUE, sep=",")
+
+#death <- fread("/Users/yuchen/Desktop/Cancer/Data/death.csv", header=TRUE, sep=",")
+death_new <- fread("/Users/yuchen/Desktop/Cancer/Data/death_new2.csv", header=TRUE, sep=",")
+
+fish <- fread("/Users/yuchen/Desktop/UKBiobank/Data/data_fish_0210.csv", header=TRUE, sep=",")
+fish = fish %>% select(ID, Fish_oil_baseline)
+
+covar <- fread("/Users/yuchen/Desktop/Cancer/Data/covar.csv", header=TRUE, sep=",")
+covar = covar %>% filter(ID %in% ID_new)
+covar = covar %>% select(-Fish_oil_baseline, -omega3_pct, -omega6_pct, -omega_ratio2)
+
+loss = fread("/Users/yuchen/Desktop/Cancer/Data/loss.csv", header=TRUE, sep=",")
+loss = loss %>% filter(ID %in% ID_new)
+
+others = fread("/Users/yuchen/Desktop/Cancer/Data/others.csv", header=TRUE, sep=",")
+```
+
+
+Merge the dataset
+
+```{r}
+mydata = omega_new %>% left_join(covar, by = "ID")
+mydata = mydata %>% left_join(death_new, by = "ID")
+mydata = mydata %>% left_join(fish, by = "ID")
+mydata = mydata %>% left_join(loss, by = "ID")
+mydata = mydata %>% left_join(others, by = "ID")
+```
+
+
+date
+
+```{r}
+library(stringr)
+# Select date
+cancer_base_wide_date = health_new %>% select(ID, starts_with('cancer_date'))
+# change wide format to long format
+cancer_base_long_date = melt(setDT(cancer_base_wide_date), measure.vars=list(c(2:23)), variable.name='instance', value.name=c('date'))[order(ID)]
+
+cancer_base_long_date$instance = sub("cancer_date", "", cancer_base_long_date$instance)
+cancer_base_long_date$instance = str_extract(cancer_base_long_date$instance, "[0-9]+")
+```
+
+
+```{r}
+# Select ICD-10
+cancer_base_wide_10 = health_new %>% select(ID, starts_with('cancer_type_10'))
+# change wide format to long format
+cancer_base_long_10 = melt(setDT(cancer_base_wide_10), measure.vars=list(c(2:23)), variable.name='instance', value.name=c('type_10'))[order(ID)]
+
+cancer_base_long_10$instance = sub("cancer_type_10icd", "", cancer_base_long_10$instance)
+cancer_base_long_10$instance = str_extract(cancer_base_long_10$instance, "[0-9]+")
+```
+
+
+check with icd-9
+
+```{r}
+# Select ICD-9
+cancer_base_wide_9 = health_new %>% select(ID, starts_with('cancer_type_9'))
+# change wide format to long format
+cancer_base_long_9 = melt(setDT(cancer_base_wide_9), measure.vars=list(c(2:16)), variable.name='instance', value.name=c('type_9'))[order(ID)]
+
+cancer_base_long_9$instance = sub("cancer_type_9icd", "", cancer_base_long_9$instance)
+cancer_base_long_9$instance = str_extract(cancer_base_long_9$instance, "[0-9]+")
+```
+
+combine date and icd-10
+
+```{r}
+cancer = cancer_base_long_date %>% left_join(cancer_base_long_10, by = c("ID", "instance"))
+cancer = cancer %>% left_join(cancer_base_long_9, by = c("ID", "instance"))
+```
+
+select the first 15 instances
+```{r}
+cancer_15 = cancer %>% group_by(ID) %>% slice(c(1:15)) 
+```
+
+map with icd-9
+```{r}
+check = cancer_15
+or = check %>% filter(is.na(type_9)==FALSE | is.na(type_10)==FALSE) # 167947
+
+
+only_10 = check %>% filter(is.na(type_9)==TRUE & is.na(type_10)==FALSE & is.na(date)==FALSE) # 152700
+only_9 = check %>% filter(is.na(type_10)==TRUE & is.na(type_9)==FALSE & is.na(date)==FALSE) # 15247
+both_have = check %>% filter(is.na(type_9)==FALSE & is.na(type_10)==FALSE) # 0
+
+```
+
+check 16-22
+```{r}
+cancer_remain = cancer %>% group_by(ID) %>% slice(c(16:22))
+missing = cancer_remain %>% filter(is.na(type_10)==FALSE | is.na(date)==FALSE) # 10
+```
+
+begin select the first occurrence
+```{r}
+cancer_1 = cancer %>% arrange(ID, date) %>% filter(is.na(date)==FALSE)
+cancer_1 = cancer_1 %>% group_by(ID) %>% slice(1)
+cancer_1 = cancer_1 %>% rename(cancer_date_1 = date)
+# create the event variable for those who had cancer
+cancer_1 = cancer_1 %>% mutate(status = 1) # 123776
+
+#### Deal with C44
+cancer_1$icd10_ini = substr(cancer_1$type_10,1,1)
+cancer_1$icd10_num = substring(cancer_1$type_10,2,3)
+cancer_1$icd10_num = as.numeric(cancer_1$icd10_num)
+cancer_1_C44 = cancer_1 %>% filter(icd10_num == 44) # 31181
+cancer_1 = cancer_1 %>% filter(!ID %in% cancer_1_C44$ID) # 92595
+```
+
+
+merge the cancer data and covar
+
+```{r}
+cancer_final = mydata %>% left_join(cancer_1, by = "ID")
+```
+
+
+Create the table with only first occurrence data
+
+```{r}
+# Exclude those had cancer at baseline
+cancer_final$base_date = as.Date(cancer_final$base_date, format = "%Y%m%d", origin=as.Date("1970-01-01"))
+cancer_have = cancer_final %>% filter(is.na(cancer_date_1)==FALSE)
+cancer_final2 = cancer_final  %>% filter(base_date <= cancer_date_1)
+
+# number of patients had cancer 92595
+num_pre = nrow(cancer_have)
+# number of patients not had cancer at baseline 54861
+num_post = nrow(cancer_final2) 
+# ID need to be exclude 37734
+ID_exc = cancer_have %>% select(ID) %>% filter(!ID %in% cancer_final2$ID)
+# number of patients had cancer at baseline 37734
+num_have = nrow(ID_exc)
+
+print(c(num_pre, num_post, num_have))
+```
+
+```{r}
+mydata_cancer = cancer_final %>% filter(!ID %in% ID_exc$ID) %>% mutate(status = ifelse(is.na(status)==TRUE, 0, 1))
+# those include does not have icd-9 
+```
+
+
+### Exclude loss to follow up
+
+```{r}
+mydata_cancer2 = mydata_cancer %>% filter(is.na(Lost_follow_up) == "TRUE")
+# print the numbers of tuples before and after exclude loss to follow up
+num_raw = nrow(mydata_cancer)
+num_after_loss = nrow(mydata_cancer2) #-1227
+print(c(num_raw, num_after_loss))
+```
+
+Total cancer
+```{r}
+sum(mydata_cancer2$status)
+```
+
+
+Merge the dataset with covariates
+
+```{r}
+# create the ethnic group
+mydata_cancer = mydata_cancer2 %>% 
+    mutate(eth_group = ifelse(ethnicity %in% c(1,1001,2001,3001,4001),"White",
+                              ifelse(ethnicity %in% c(2,1002,2002,3002,4002),"Mixed",
+                                    ifelse(ethnicity %in% c(3,1003,2003,3003,4003),"Asian or Asian British",
+                                          ifelse(ethnicity %in% c(4,2004,3004),"Black or Black British",
+                                                ifelse(ethnicity %in% c(5),"Chinese",
+                                                    ifelse(ethnicity %in% c(6),"Other ethnic group",
+                                                                            "DK/NR")))))))
+# Combine the ethnicity
+mydata_cancer = mydata_cancer %>% 
+    mutate(eth_group_new = ifelse(eth_group == "White","White",
+                                  ifelse(eth_group == "Black or Black British","Black",
+                                         ifelse(eth_group %in% c("Asian or Asian British", "Chinese"),"Asian",
+                                                ifelse(eth_group %in% c("Mixed", "Other ethnic group"),"Others",
+                                                       NA)))))  %>% select(-c(ethnicity, eth_group))
+mydata_cancer$Alcohol_status[mydata_cancer$Alcohol_status==-3] = NA
+mydata_cancer$Smoking_status[mydata_cancer$Smoking_status==-3] = NA
+
+
+
+# Calculate the time interval
+mydata_cancer = mydata_cancer %>% mutate(cancer_date_1 = ifelse(is.na(cancer_date_1)==TRUE, as.Date("2022-12-19"), cancer_date_1))
+mydata_cancer = mydata_cancer %>% mutate(date_of_death = ifelse(is.na(date_of_death)==TRUE, as.Date("2022-12-19"), date_of_death))
+mydata_cancer$cancer_date_1 = as.Date(mydata_cancer$cancer_date_1, format = "%Y%m%d", origin=as.Date("1970-01-01"))
+mydata_cancer$date_of_death = as.Date(mydata_cancer$date_of_death, format = "%Y%m%d", origin=as.Date("1970-01-01"))
+# end of study (which comes first)
+mydata_cancer = mydata_cancer %>% mutate(end_date = ifelse(date_of_death < cancer_date_1, date_of_death, cancer_date_1))
+mydata_cancer$end_date = as.Date(mydata_cancer$end_date, format = "%Y%m%d", origin=as.Date("1970-01-01"))
+mydata_cancer$time_to_cancer = difftime(mydata_cancer$end_date, mydata_cancer$base_date, units = "days") # in days
+mydata_cancer$time_to_cancer_year = round(mydata_cancer$time_to_cancer/365.2425,2)
+mydata_cancer$time_to_cancer_year = as.numeric(mydata_cancer$time_to_cancer_year)
+# cancer subgroup
+mydata_cancer = mydata_cancer %>% 
+    mutate(cancer_sub = 
+      ifelse(icd10_num >= 0 & icd10_num <= 14 ,"01_head",
+         ifelse(icd10_num == 15, "02_esopha",
+            ifelse(icd10_num == 16,"03_stomach",
+               ifelse(icd10_num == 18,"04_colon",
+                  ifelse(icd10_num == 19 | icd10_num == 20 ,"05_rectum",
+                    ifelse(icd10_num >= 22 & icd10_num <= 24,"06_hepatob",
+                     ifelse(icd10_num == 25,"07_pancrea",
+                      ifelse(icd10_num == 33 | icd10_num == 34,"08_lung",
+                        ifelse(icd10_num == 43,"09_mal_melan",
+                          ifelse(icd10_num ==49,"10_connect",
+                            ifelse(icd10_num == 50,"11_breast",
+                              ifelse(icd10_num == 54 | icd10_num == 55,"12_uterus",
+                               ifelse(icd10_num == 56,"13_ovary",
+                                 ifelse(icd10_num == 61,"14_prostate",
+                                   ifelse(icd10_num == 64 | icd10_num == 65,"15_kidney",
+                                     ifelse(icd10_num == 66 | icd10_num == 67,"16_bladder",
+                                       ifelse(icd10_num >= 70 & icd10_num <= 72,"17_brain",
+                                         ifelse(icd10_num == 73,"18_thyroid",
+                                           ifelse(icd10_num >= 81 & icd10_num <= 96,"19_lymphoma",NA
+                                                                 ))))))))))))))))))))
+mydata_cancer = mydata_cancer %>% filter(is.na(time_to_cancer_year) == FALSE)
+# Save the data
+# cluster location /scratch/yz92460/ukb/omega_data/raw.csv
+# local location /Users/yuchen/Desktop/UKBiobank/Cancer/Data/
+write.csv(mydata_cancer,file="/Users/yuchen/Desktop/Cancer/Data/mydata_cancer.csv",row.names = F)
+
+```
+
+Get the min, max, median, mean for individuals developing cancer
+
+```{r}
+test_c = mydata_cancer %>% filter(status == 1)
+print(median(mydata_cancer$time_to_cancer_year))
+```
+
+```{r}
+hist(test_c$time_to_cancer_year, xlab = "Year", main = "Distribution of time to first cancer")
+```
+
+
+### Get the data with complete information on plasma PUFAs
+
+```{r}
+plasma_cancer = mydata_cancer %>% filter(is.na(omega_ratio) == FALSE) # 253138
+plasma_excnum = nrow(mydata_cancer) - nrow(plasma_cancer)
+print(plasma_excnum)
+# Save the data
+# cluster location /scratch/yz92460/ukb/omega_data/raw.csv
+# local location /Users/yuchen/Desktop/UKBiobank/Cancer/Data/
+write.csv(plasma_cancer,file="/Users/yuchen/Desktop/Cancer/Data/plasma_cancer.csv",row.names = F)
+```
+
+Baseline characteristics table for plasma data
+
+```{r results="asis"}
+data_add = plasma_cancer %>% mutate(omega3_pctg = ntile(omega3_pct, 5))
+data_add = data_add %>% mutate(omega6_pctg = ntile(omega6_pct, 5))
+data_add = data_add %>% mutate(omega_ratiog = ntile(omega_ratio, 5))
+
+
+data_add$sex = as.factor(data_add$sex)
+data_add$Fish_oil_baseline = as.factor(data_add$Fish_oil_baseline)
+data_add$Alcohol_status = as.factor(data_add$Alcohol_status)
+data_add$Smoking_status =as.factor(data_add$Smoking_status)
+data_add$IPAQ_activity = as.factor(data_add$IPAQ_activity)
+data_add$omega_ratiog = as.factor(data_add$omega_ratiog)
+
+plasma_selected = data_add[, c(3,4,25,5,7,9,8,10,11,12,13,32)]
+demo_plasma = tableby( omega_ratiog~., data = plasma_selected, control=tableby.control(numeric.test="anova", cat.test="chisq"))
+
+summary(demo_plasma, pfootnote = T, digits = 1)
+```
+
+### Get the data with complete information on fish oil supplementation
+
+```{r}
+fish_cancer = mydata_cancer %>% filter(is.na(Fish_oil_baseline) == FALSE) # 457683
+fish_excnum = nrow(mydata_cancer) - nrow(fish_cancer)
+print(fish_excnum)
+# Save the data
+# cluster location /scratch/yz92460/ukb/omega_data/raw.csv
+# local location /Users/yuchen/Desktop/UKBiobank/Cancer/Data/
+write.csv(fish_cancer,file="/Users/yuchen/Desktop/Cancer/Data/fish_cancer.csv",row.names = F)
+```
+
+Baseline characteristics table for fish oil supplementation data
+
+```{r results="asis"}
+fish_cancer$sex = as.factor(fish_cancer$sex)
+fish_cancer$Fish_oil_baseline = as.factor(fish_cancer$Fish_oil_baseline)
+fish_cancer$Alcohol_status = as.factor(fish_cancer$Alcohol_status)
+fish_cancer$Smoking_status =as.factor(fish_cancer$Smoking_status)
+
+fish_selected = fish_cancer[, c(11,12,13,14)]
+demo_fish = tableby(Fish_oil_baseline~ ., data = fish_selected, control=tableby.control(numeric.test="anova", cat.test="chisq"))
+
+summary(demo_fish, pfootnote = T, digits = 1)
+```
+
